@@ -1,4 +1,4 @@
-FROM java:8-jre
+FROM openjdk:8-jre
 
 # grab gosu for easy step-down from root
 ENV GOSU_VERSION 1.7
@@ -12,24 +12,32 @@ RUN set -x \
 	&& chmod +x /usr/local/bin/gosu \
 	&& gosu nobody true
 
-# https://www.elastic.co/guide/en/elasticsearch/reference/current/setup-repositories.html
-# https://packages.elasticsearch.org/GPG-KEY-elasticsearch
+# https://artifacts.elastic.co/GPG-KEY-elasticsearch
 RUN apt-key adv --keyserver ha.pool.sks-keyservers.net --recv-keys 46095ACC8548582C1A2699A9D27D666CD88E42B4
 
-ENV ELASTICSEARCH_MAJOR 2.2
-ENV ELASTICSEARCH_VERSION 2.2.0
-ENV ELASTICSEARCH_REPO_BASE http://packages.elasticsearch.org/elasticsearch/2.x/debian
-
-RUN echo "deb $ELASTICSEARCH_REPO_BASE stable main" > /etc/apt/sources.list.d/elasticsearch.list
-
+# https://www.elastic.co/guide/en/elasticsearch/reference/current/setup-repositories.html
+# https://www.elastic.co/guide/en/elasticsearch/reference/5.0/deb.html
 RUN set -x \
+	&& apt-get update && apt-get install -y --no-install-recommends apt-transport-https && rm -rf /var/lib/apt/lists/* \
+	&& echo 'deb https://artifacts.elastic.co/packages/5.x/apt stable main' > /etc/apt/sources.list.d/elasticsearch.list
+
+ENV ELASTICSEARCH_VERSION 5.2.2
+ENV ELASTICSEARCH_DEB_VERSION 5.2.2
+RUN set -x \
+	\
+# don't allow the package to install its sysctl file (causes the install to fail)
+# Failed to write '262144' to '/proc/sys/vm/max_map_count': Read-only file system
+	&& dpkg-divert --rename /usr/lib/sysctl.d/elasticsearch.conf \
+	\
 	&& apt-get update \
-	&& apt-get install -y --no-install-recommends elasticsearch=$ELASTICSEARCH_VERSION \
+	&& apt-get install -y --no-install-recommends "elasticsearch=$ELASTICSEARCH_DEB_VERSION" \
 	&& rm -rf /var/lib/apt/lists/*
 
 ENV PATH /usr/share/elasticsearch/bin:$PATH
 
 WORKDIR /usr/share/elasticsearch
+
+RUN bin/elasticsearch-plugin install http://xbib.org/repository/org/xbib/elasticsearch/plugin/elasticsearch-langdetect/5.2.2.0/elasticsearch-langdetect-5.2.2.0-plugin.zip
 
 RUN set -ex \
 	&& for path in \
@@ -42,11 +50,10 @@ RUN set -ex \
 		chown -R elasticsearch:elasticsearch "$path"; \
 	done
 
-RUN ./bin/plugin install https://github.com/jprante/elasticsearch-langdetect/releases/download/2.2.0.1/elasticsearch-langdetect-2.2.0.1-plugin.zip
-
 COPY config ./config
 
 VOLUME /usr/share/elasticsearch/data
+VOLUME /usr/share/elasticsearch/logs
 
 COPY docker-entrypoint.sh /
 
